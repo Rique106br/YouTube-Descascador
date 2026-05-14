@@ -15,26 +15,23 @@ def converter_json_para_txt():
             with open('cookies.json', 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # Se o JSON exportado for um dicionário, extrai a lista de dentro dele
             if isinstance(data, dict):
                 for key, value in data.items():
                     if isinstance(value, list):
                         data = value
                         break
             
-            # Se ainda assim não for uma lista, cancela a conversão
             if not isinstance(data, list):
                 print("Formato do cookies.json não reconhecido. Não é uma lista válida.")
                 return
 
             with open('cookies.txt', 'w', encoding='utf-8') as f:
                 f.write("# Netscape HTTP Cookie File\n")
-                f.write("# Gerado automaticamente pelo backend a partir do JSON\n")
+                f.write("# Gerado automaticamente\n")
                 
                 for c in data:
                     if not isinstance(c, dict):
                         continue
-                        
                     domain = c.get('domain', '')
                     flag = 'TRUE' if domain.startswith('.') else 'FALSE'
                     path = c.get('path', '/')
@@ -45,12 +42,10 @@ def converter_json_para_txt():
                     
                     linha = f"{domain}\t{flag}\t{path}\t{secure}\t{expiration}\t{name}\t{value}\n"
                     f.write(linha)
-                    
-            print("Cookies convertidos de JSON para TXT com sucesso!")
+            print("Cookies convertidos com sucesso!")
         except Exception as e:
             print(f"Erro ao converter cookies: {e}")
 
-# Executa a conversão logo que o app iniciar no Render
 converter_json_para_txt()
 
 @app.route('/descascar', methods=['POST'])
@@ -61,56 +56,31 @@ def descascar():
     if not url:
         return jsonify({"error": "Nenhum link fornecido"}), 400
 
-    # Usamos um filtro de formato super abrangente para o yt-dlp NUNCA travar por falta de formato
+    # Pede explicitamente o melhor vídeo em mp4 e o melhor áudio em m4a (separados) ou o melhor formato único
     ydl_opts = {
-        'format': 'best[ext=mp4]/best/b/bestvideo/worst', 
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
         'quiet': True,
         'no_warnings': True,
         'simulate': True,
     }
     
-    # Usa os cookies gerados para passar pelo bloqueio do YouTube
     if os.path.exists('cookies.txt'):
         ydl_opts['cookiefile'] = 'cookies.txt'
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Baixa toda a árvore de dados do link
             info = ydl.extract_info(url, download=False)
             
-            # Pegamos a lista bruta de formatos para filtrar na mão
-            formats = info.get('formats', [])
-            url_direta = None
-            
-            # 1. Procura apenas os formatos que tenham vídeo E áudio juntos (vcodec e acodec ativos)
-            combinados = [f for f in formats if f.get('vcodec') != 'none' and f.get('acodec') != 'none']
-            
-            if combinados:
-                # Prioriza MP4 porque roda liso no A-Frame e Moto G84
-                mp4s = [f for f in combinados if f.get('ext') == 'mp4']
-                if mp4s:
-                    # Pega o de melhor resolução
-                    mp4s.sort(key=lambda x: x.get('height') or 0, reverse=True)
-                    url_direta = mp4s[0].get('url')
-                else:
-                    # Se não tem MP4, pega a melhor combinação que existir (ex: webm)
-                    combinados.sort(key=lambda x: x.get('height') or 0, reverse=True)
-                    url_direta = combinados[0].get('url')
+            # Se o yt-dlp conseguir separar vídeo e áudio em alta qualidade, ele cria a chave 'requested_formats'
+            if 'requested_formats' in info:
+                url_video = info['requested_formats'][0]['url']
+                url_audio = info['requested_formats'][1]['url']
+                return jsonify({"url_video": url_video, "url_audio": url_audio}), 200
             else:
-                # 2. Se for um vídeo chato sem formato combinado, pega a melhor imagem pra não dar tela preta
-                apenas_video = [f for f in formats if f.get('vcodec') != 'none']
-                if apenas_video:
-                    apenas_video.sort(key=lambda x: x.get('height') or 0, reverse=True)
-                    url_direta = apenas_video[0].get('url')
-                else:
-                    # 3. Fallback cego (caso de extremo erro do YouTube)
-                    url_direta = info.get('url')
-            
-            if url_direta:
-                return jsonify({"url": url_direta}), 200
-            else:
-                return jsonify({"error": "Não foi possível extrair nenhuma URL de mídia utilizável."}), 500
-                
+                # Fallback: Se for um vídeo antigo que só tem formato único (tipo o ID 18)
+                url_video = info.get('url')
+                return jsonify({"url_video": url_video, "url_audio": None}), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
