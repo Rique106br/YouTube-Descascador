@@ -61,9 +61,9 @@ def descascar():
     if not url:
         return jsonify({"error": "Nenhum link fornecido"}), 400
 
-    # Configuração do yt-dlp atualizada para o formato 'b' (melhor formato pré-combinado disponível)
+    # Usamos um filtro de formato super abrangente para o yt-dlp NUNCA travar por falta de formato
     ydl_opts = {
-        'format': 'b',
+        'format': 'best[ext=mp4]/best/b/bestvideo/worst', 
         'quiet': True,
         'no_warnings': True,
         'simulate': True,
@@ -75,13 +75,42 @@ def descascar():
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # Baixa toda a árvore de dados do link
             info = ydl.extract_info(url, download=False)
-            url_direta = info.get('url')
+            
+            # Pegamos a lista bruta de formatos para filtrar na mão
+            formats = info.get('formats', [])
+            url_direta = None
+            
+            # 1. Procura apenas os formatos que tenham vídeo E áudio juntos (vcodec e acodec ativos)
+            combinados = [f for f in formats if f.get('vcodec') != 'none' and f.get('acodec') != 'none']
+            
+            if combinados:
+                # Prioriza MP4 porque roda liso no A-Frame e Moto G84
+                mp4s = [f for f in combinados if f.get('ext') == 'mp4']
+                if mp4s:
+                    # Pega o de melhor resolução
+                    mp4s.sort(key=lambda x: x.get('height') or 0, reverse=True)
+                    url_direta = mp4s[0].get('url')
+                else:
+                    # Se não tem MP4, pega a melhor combinação que existir (ex: webm)
+                    combinados.sort(key=lambda x: x.get('height') or 0, reverse=True)
+                    url_direta = combinados[0].get('url')
+            else:
+                # 2. Se for um vídeo chato sem formato combinado, pega a melhor imagem pra não dar tela preta
+                apenas_video = [f for f in formats if f.get('vcodec') != 'none']
+                if apenas_video:
+                    apenas_video.sort(key=lambda x: x.get('height') or 0, reverse=True)
+                    url_direta = apenas_video[0].get('url')
+                else:
+                    # 3. Fallback cego (caso de extremo erro do YouTube)
+                    url_direta = info.get('url')
             
             if url_direta:
                 return jsonify({"url": url_direta}), 200
             else:
-                return jsonify({"error": "Não foi possível extrair a URL direta."}), 500
+                return jsonify({"error": "Não foi possível extrair nenhuma URL de mídia utilizável."}), 500
+                
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
