@@ -15,14 +15,14 @@ def converter_json_para_txt():
             with open('cookies.json', 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # Se o JSON exportado for um dicionário (ex: {"cookies": [...]}), extrai a lista de dentro dele
+            # Se o JSON exportado for um dicionário, extrai a lista de dentro dele
             if isinstance(data, dict):
                 for key, value in data.items():
                     if isinstance(value, list):
                         data = value
                         break
             
-            # Se ainda assim não for uma lista (ou for vazio), cancela a conversão
+            # Se ainda assim não for uma lista, cancela a conversão
             if not isinstance(data, list):
                 print("Formato do cookies.json não reconhecido. Não é uma lista válida.")
                 return
@@ -32,22 +32,17 @@ def converter_json_para_txt():
                 f.write("# Gerado automaticamente pelo backend a partir do JSON\n")
                 
                 for c in data:
-                    # Ignora se o item atual não for um dicionário de cookie válido
                     if not isinstance(c, dict):
                         continue
                         
                     domain = c.get('domain', '')
-                    # O formato Netscape precisa saber se o domínio começa com ponto
                     flag = 'TRUE' if domain.startswith('.') else 'FALSE'
                     path = c.get('path', '/')
                     secure = 'TRUE' if c.get('secure', False) else 'FALSE'
-                    
-                    # Evita erro caso algum cookie não tenha data de expiração
                     expiration = str(int(c.get('expirationDate', 0))) if 'expirationDate' in c else '0'
                     name = c.get('name', '')
                     value = c.get('value', '')
                     
-                    # Monta a linha exata que o yt-dlp consegue ler
                     linha = f"{domain}\t{flag}\t{path}\t{secure}\t{expiration}\t{name}\t{value}\n"
                     f.write(linha)
                     
@@ -66,15 +61,15 @@ def descascar():
     if not url:
         return jsonify({"error": "Nenhum link fornecido"}), 400
 
-    # Configuração do yt-dlp
+    # Configuração do yt-dlp atualizada para o formato 'b' (melhor formato pré-combinado disponível)
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',
+        'format': 'b',
         'quiet': True,
         'no_warnings': True,
         'simulate': True,
     }
     
-    # Se o TXT tiver sido gerado com sucesso, usa ele para o login no YouTube
+    # Usa os cookies gerados para passar pelo bloqueio do YouTube
     if os.path.exists('cookies.txt'):
         ydl_opts['cookiefile'] = 'cookies.txt'
 
